@@ -163,7 +163,28 @@ def type(
     return wrap(cls)
 
 
-input = partial(type, is_input=True)
+@__dataclass_transform__(order_default=True)
+def input(
+    cls: Type = None,
+    *,
+    name: str = None,
+    description: str = None,
+    federation: Optional[FederationTypeParams] = None,
+):
+    """Annotates a class as a GraphQL Input type.
+
+    Example usage:
+
+    >>> @strawberry.input:
+    >>> class X:
+    >>>     field_abc: str = "ABC"
+    """
+
+    return type(
+        cls, name=name, description=description, federation=federation, is_input=True
+    )
+
+
 interface = partial(type, is_interface=True)
 
 
