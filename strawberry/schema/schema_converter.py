@@ -1,6 +1,6 @@
 from enum import Enum
 from inspect import isasyncgen, iscoroutine
-from typing import Any, Callable, Dict, List, Tuple, Type, cast
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Tuple, Type, cast
 
 from graphql import (
     GraphQLArgument,
@@ -25,16 +25,21 @@ from graphql import (
 )
 
 from strawberry.arguments import UNSET, StrawberryArgument, convert_arguments
+from strawberry.custom_scalar import ScalarDefinition
 from strawberry.directive import DirectiveDefinition
 from strawberry.enum import EnumDefinition, EnumValue
 from strawberry.field import StrawberryField
 from strawberry.scalars import is_scalar
+from strawberry.schema.types.scalar import _make_scalar_type
 from strawberry.types.info import Info
 from strawberry.types.types import TypeDefinition, undefined
 from strawberry.union import StrawberryUnion
 
 from .types.concrete_type import ConcreteType
-from .types.scalar import get_scalar_type
+
+
+if TYPE_CHECKING:
+    from strawberry.schema.schema import Schema
 
 
 # graphql-core expects a resolver for an Enum type to return
@@ -51,8 +56,9 @@ class CustomGraphQLEnumType(GraphQLEnumType):
 class GraphQLCoreConverter:
     # TODO: Make abstract
 
-    def __init__(self):
+    def __init__(self, schema: "Schema"):
         self.type_map: Dict[str, ConcreteType] = {}
+        self.schema = schema
 
     def get_graphql_type_argument(self, argument: StrawberryArgument) -> GraphQLType:
         # TODO: Completely replace with get_graphql_type
@@ -396,7 +402,33 @@ class GraphQLCoreConverter:
         return _resolver
 
     def from_scalar(self, scalar: Type) -> GraphQLScalarType:
-        return get_scalar_type(scalar, self.type_map)
+        scalar_definition = self.schema.get_scalar_definition(scalar)
+
+        if scalar_definition.name not in self.type_map:
+            if isinstance(scalar_definition, GraphQLScalarType):
+                implementation = scalar_definition
+                # Reverse create the ScalarDefinition from the GraphQLScalarType
+                # This is a bit pointless but it's mainly to avoid the type
+                # signature of ConcreteType having to rely on GraphQLScalarType
+                scalar_definition = ScalarDefinition(
+                    name=scalar_definition.name,
+                    description=scalar_definition.name,
+                    serialize=scalar_definition.serialize,
+                    parse_literal=scalar_definition.parse_literal,
+                    parse_value=scalar_definition.parse_value,
+                )
+            else:
+                implementation = _make_scalar_type(scalar_definition)
+
+            self.type_map[scalar_definition.name] = ConcreteType(
+                definition=scalar_definition, implementation=implementation
+            )
+        else:
+            implementation = cast(
+                GraphQLScalarType, self.type_map[scalar_definition.name].implementation
+            )
+
+        return implementation
 
     def from_union(self, union: StrawberryUnion) -> GraphQLUnionType:
 
